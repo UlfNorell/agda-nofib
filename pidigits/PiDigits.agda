@@ -4,6 +4,7 @@ module PiDigits where
 open import Prelude
 open import Control.WellFounded
 open import Data.Stream
+open import NoFib.IO
 
 -- Let's not worry about division by zero.
 _div!_ : Int → Int → Int
@@ -44,15 +45,5 @@ lines (suc n) count xs with splitAt 10 xs
 mapM! : {M : Set → Set} {A : Set} {{_ : Monad M}} → (A → M ⊤) → List A → M ⊤
 mapM! f []       = return _
 mapM! f (x ∷ xs) = f x >> mapM! f xs
-
-withNatArg : (Nat → IO ⊤) → IO ⊤
-withNatArg f = getArgs >>= λ
-  { (s ∷ []) →
-    case parseNat s of λ
-    { (just n) → f n
-    ; nothing  → putStrLn "Usage: PiDigits N"
-    }
-  ; _ → putStrLn "Usage: PiDigits N"
-  }
 
 main = withNatArg λ n → mapM! putStrLn $ lines n 0 $ takeS n (pi 1 0 1 1)
