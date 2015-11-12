@@ -3,3 +3,4 @@ depend: agda-prelude
 include:
   src
   pidigits
+  n-body
