@@ -5,42 +5,30 @@ open import Prelude
 open import Control.WellFounded
 open import Data.Stream
 
-module _ {A B C : Set} (next : B → C) (safe : B → C → Bool)
-                       (prod : B → C → B) (cons : B → A → B) where
+-- Let's not worry about division by zero.
+_div!_ : Int → Int → Int
+a div! b = quotInt-by b {{nonZ}} a
+  where postulate nonZ : NonZeroInt b
+{-# INLINE _div!_ #-}
 
-  {-# TERMINATING #-}
-  stream : (z : B) (xs : Stream A) → Stream C
-  stream z xs with next z
-  ... | y with safe z y
-  ...   | false = stream (cons z (head xs)) (tail xs)
-  ...   | true  = y ∷ stream (prod z y) xs
+output : Int → Int → Int → Maybe Int
+output q r t with r - q
+... | negsuc _ = nothing
+... | pos    _ with q * 3 + r
+...   | a with a div! t
+...     | n with (n + 1) * t - (q + a)
+...       | negsuc _ = nothing
+...       | pos    _ = just n
+{-# INLINE output #-}
 
-from : Int → Stream Int
-from = iterate (1 +_)
-
-data LFT : Set where
-  ⟨_,_,_,_⟩ : (a b c d : Int) → LFT
-
-extr : LFT → Int → Int
-extr ⟨ q , r , s , t ⟩ x = quotInt-by (s * x + t) {{nonZ}} (q * x + r)
-  where postulate nonZ : NonZeroInt _
-
-I : LFT
-I = ⟨ 1 , 0 , 0 , 1 ⟩
-
-_∙_ : LFT → LFT → LFT
-⟨ q , r , s , t ⟩ ∙ ⟨ u , v , w , x ⟩ =
-  ⟨ q * u + r * w , q * v + r * x
-  , s * u + t * w , s * v + t * x ⟩
-
-pi : Stream Int
-pi = stream next safe prod _∙_ I lfts
-  where
-    lfts : Stream LFT
-    lfts = fmap (λ k → ⟨ k , 4 * k + 2 , 0 , 2 * k + 1 ⟩) (from 1)
-    next = λ z   → extr z 3
-    safe = λ z n → isYes (n == extr z 4)
-    prod = λ z n → ⟨ 10 , -10 * n , 0 , 1 ⟩ ∙ z
+{-# TERMINATING #-}
+-- We trust Jeremy when he says this is productive.
+pi : Int → Int → Int → Int → Stream Int
+pi q r t k with output q r t
+... | nothing = case 2 * k + 1 of λ j →
+                pi (q * k) ((2 * q + r) * j)
+                   (t * j) (k + 1)
+... | just n = n ∷ pi (10 * q) (10 * (r - t * n)) t k
 
 append : List String → String
 append = foldr _&_ ""
@@ -67,4 +55,4 @@ withNatArg f = getArgs >>= λ
   ; _ → putStrLn "Usage: PiDigits N"
   }
 
-main = withNatArg λ n → mapM! putStrLn $ lines n 0 $ takeS n pi
+main = withNatArg λ n → mapM! putStrLn $ lines n 0 $ takeS n (pi 1 0 1 1)
