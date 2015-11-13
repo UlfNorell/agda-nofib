@@ -6,62 +6,52 @@ open import Builtin.Float
 open import Text.Printf
 open import NoFib.IO
 
-data Triple (A : Set) : Set where
-  ⟨_,_,_⟩ : (x y z : A) → Triple A
+data Vec : Set where
+  ⟨_,_,_⟩ : (x y z : Float) → Vec
+
+Pos = Vec
 
 {-# IMPORT NBodyPrim #-}
-{-# COMPILED_DATA Triple NBodyPrim.Triple NBodyPrim.Triple #-}
+{-# COMPILED_DATA Vec NBodyPrim.Pos NBodyPrim.Triple #-}
 
-_∙_ : {A : Set} {{_ : Semiring A}} → Triple A → Triple A → A
+_∙_ : Vec → Vec → Float
 ⟨ x , y , z ⟩ ∙ ⟨ x₁ , y₁ , z₁ ⟩ = x * x₁ + y * y₁ + z * z₁
+{-# INLINE _∙_ #-}
 
-pureT : {A : Set} → A → Triple A
-pureT x = ⟨ x , x , x ⟩
-{-# INLINE pureT #-}
+diag : Float → Vec
+diag x = ⟨ x , x , x ⟩
+{-# INLINE diag #-}
 
-appT : {A B : Set} → Triple (A → B) → Triple A → Triple B
-appT ⟨ f , g , h ⟩ ⟨ x , y , z ⟩ = ⟨ f x , g y , h z ⟩
-{-# INLINE appT #-}
+mapP : (Float → Float) → Vec → Vec
+mapP f ⟨ x , y , z ⟩ = ⟨ f x , f y , f z ⟩
+{-# INLINE mapP #-}
 
-mapT : {A B : Set} → (A → B) → Triple A → Triple B
-mapT f x = appT (pureT f) x
-{-# INLINE mapT #-}
-
-η : {A B : Set} → Triple A → (Triple A → B) → B
-η ⟨ x , y , z ⟩ f = f ⟨ x , y , z ⟩
-{-# INLINE η #-}
-
-η₂ : {A B C : Set} → Triple A → Triple B → (Triple A → Triple B → C) → C
-η₂ ⟨ x , y , z ⟩ ⟨ x₁ , y₁ , z₁ ⟩ f = f ⟨ x , y , z ⟩ ⟨ x₁ , y₁ , z₁ ⟩
-{-# INLINE η₂ #-}
+zipP : (Float → Float → Float) → Vec → Vec → Vec
+zipP f ⟨ x , y , z ⟩ ⟨ x₁ , y₁ , z₁ ⟩ = ⟨ f x x₁ , f y y₁ , f z z₁ ⟩
+{-# INLINE zipP #-}
 
 instance
-  FunTriple : Functor Triple
-  fmap {{FunTriple}} = mapT
+  SemiringVec : Semiring Vec
+  zro {{SemiringVec}} = diag 0.0
+  one {{SemiringVec}} = diag 1.0
+  _+_ {{SemiringVec}} u v = zipP _+_ u v
+  _*_ {{SemiringVec}} u v = zipP _*_ u v
 
-  AppTriple : Applicative Triple
-  pure {{AppTriple}} = pureT
-  _<*>_ {{AppTriple}} = appT
+  SubVec : Subtractive Vec
+  negate {{SubVec}} = mapP negate
+  _-_    {{SubVec}} u v = zipP _-_ u v
 
-  SemiringTriple : Semiring (Triple Float)
-  zro {{SemiringTriple}} = pure zro
-  one {{SemiringTriple}} = pure one
-  _+_ {{SemiringTriple}} u v = η₂ u v λ u v → _+_ <$> u <*> v
-  _*_ {{SemiringTriple}} u v = η₂ u v λ u v → _*_ <$> u <*> v
+  FracVec : Fractional Vec
+  Fractional.Constraint FracVec _ _ = ⊤
+  _/_ {{FracVec}} u v = zipP (λ x y → x / y) u v
 
-  SubTriple : Subtractive (Triple Float)
-  negate {{SubTriple}} = fmap negate
-  _-_    {{SubTriple}} u v = η₂ u v λ u v → _-_ <$> u <*> v
-
-  FracTriple : Fractional (Triple Float)
-  Fractional.Constraint FracTriple _ _ = ⊤
-  _/_ {{FracTriple}} u v = (λ x y → x / y) <$> u <*> v
-
-Pos = Triple Float
-Vec = Pos
+∣_∣² : Vec → Float
+∣ ⟨ x , y , z ⟩ ∣² = x * x + y * y + z * z
+{-# INLINE ∣_∣² #-}
 
 ∣_∣ : Vec → Float
-∣ v ∣ = sqrt (v ∙ v)
+∣ v ∣ = sqrt ∣ v ∣²
+{-# INLINE ∣_∣ #-}
 
 daysPerYear : Float
 daysPerYear = 365.24
@@ -92,24 +82,35 @@ infix 0 letstrict
 syntax letstrict x (λ y → z) = let! y ← x do z
 letstrict : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
 letstrict x f = force x f
--- {-# INLINE letstrict #-} -- makes it 15% slower!
+{-# INLINE letstrict #-} -- makes it 15% slower!
+
+infix 0 letlazy
+syntax letlazy x (λ y → z) = let~ y ← x do z
+letlazy : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
+letlazy x f = f x
+{-# INLINE letlazy #-}
 
 {-# TERMINATING #-}
 advance : Float → List Body → List Body
 advance δt = map move ∘ go
   where
     move : Body → Body
-    move b = record { Body b; p = p + pure δt * v }
+    move b = record { Body b; p = p + diag δt * v }
       where open Body b
 
     update : Body → Body → Body × Body
-    update ⟨ p , v , m ⟩ ⟨ p₁ , v₁ , m₁ ⟩ =
-      let! u   ← p - p₁        do
-      let! d²  ← u ∙ u         do
-      let! d   ← sqrt d²       do
-      let! mag ← δt / (d² * d) do
-      ⟨ p  , v - u * pure (m₁ * mag) , m ⟩ ,
-      ⟨ p₁ , v₁ + u * pure (m * mag) , m₁ ⟩
+    update ⟨ p , v , m ⟩ ⟨ p₁ , v₁ , m₁ ⟩ with p | v | p₁ | v₁
+    ... | ⟨ x  , y  , z  ⟩ | ⟨ vx  , vy  , vz  ⟩
+        | ⟨ x₁ , y₁ , z₁ ⟩ | ⟨ vx₁ , vy₁ , vz₁ ⟩ =
+      let p′  = ⟨ x , y , z ⟩
+          p₁′ = ⟨ x₁ , y₁ , z₁ ⟩
+          v′  = ⟨ vx  , vy  , vz  ⟩
+          v₁′ = ⟨ vx₁ , vy₁ , vz₁ ⟩ in
+      let~ u   ← p′ - p₁′ do
+      let~ d²  ← ∣ u ∣² do
+      let~ mag ← δt / (d² * sqrt d²) do
+      ⟨ p  , v′  - u * diag (m₁ * mag) , m ⟩ ,
+      ⟨ p₁ , v₁′ + u * diag (m * mag)  , m₁ ⟩
 
     updates : Body → List Body → Body × List Body
     updates b []        = b , []
@@ -125,31 +126,31 @@ advance δt = map move ∘ go
 
 jupiter : Body
 Body.p jupiter = ⟨ 4.84143144246472090 , -1.16032004402742839 , -1.03622044471123109e-01 ⟩
-Body.v jupiter = ⟨ 1.66007664274403694e-03 , 7.69901118419740425e-03 , -6.90460016972063023e-05 ⟩ * pure daysPerYear
+Body.v jupiter = ⟨ 1.66007664274403694e-03 , 7.69901118419740425e-03 , -6.90460016972063023e-05 ⟩ * diag daysPerYear
 Body.m jupiter = 9.54791938424326609e-04 * solarMass
 
 saturn : Body
 Body.p saturn = ⟨ 8.34336671824457987e+00 ,  4.12479856412430479e+00 , -4.03523417114321381e-01 ⟩
-Body.v saturn = ⟨ -2.76742510726862411e-03 ,  4.99852801234917238e-03 ,  2.30417297573763929e-05 ⟩ * pure daysPerYear
+Body.v saturn = ⟨ -2.76742510726862411e-03 ,  4.99852801234917238e-03 ,  2.30417297573763929e-05 ⟩ * diag daysPerYear
 Body.m saturn = 2.85885980666130812e-04 * solarMass
 
 uranus : Body
 Body.p uranus = ⟨ 1.28943695621391310e+01 , -1.51111514016986312e+01 , -2.23307578892655734e-01 ⟩
-Body.v uranus = ⟨ 2.96460137564761618e-03 ,  2.37847173959480950e-03 , -2.96589568540237556e-05 ⟩ * pure daysPerYear
+Body.v uranus = ⟨ 2.96460137564761618e-03 ,  2.37847173959480950e-03 , -2.96589568540237556e-05 ⟩ * diag daysPerYear
 Body.m uranus = 4.36624404335156298e-05 * solarMass
 
 neptune : Body
 Body.p neptune = ⟨ 1.53796971148509165e+01 , -2.59193146099879641e+01 , 1.79258772950371181e-01 ⟩
-Body.v neptune = ⟨ 2.68067772490389322e-03 ,  1.62824170038242295e-03 , -9.51592254519715870e-05 ⟩ * pure daysPerYear
+Body.v neptune = ⟨ 2.68067772490389322e-03 ,  1.62824170038242295e-03 , -9.51592254519715870e-05 ⟩ * diag daysPerYear
 Body.m neptune = 5.15138902046611451e-05 * solarMass
 
 sun : Body
-Body.p sun = pure 0
-Body.v sun = pure 0
+Body.p sun = diag 0
+Body.v sun = diag 0
 Body.m sun = solarMass
 
 offsetMomentum : Pos → Body → Body
-offsetMomentum p b = record { Body b; v = negate (p / pure solarMass) }
+offsetMomentum p b = record { Body b; v = negate (p / diag solarMass) }
 
 bodies : List Body
 bodies = offsetMomentum p sun ∷ planets
@@ -157,11 +158,11 @@ bodies = offsetMomentum p sun ∷ planets
     planets : List Body
     planets = jupiter ∷ saturn ∷ uranus ∷ neptune ∷ []
     p : Pos
-    p = sum (map (λ b →  Body.v b * pure (Body.m b)) (sun ∷ planets))
+    p = sum (map (λ b →  Body.v b * diag (Body.m b)) (sun ∷ planets))
 
 iterate : ∀ {a} {A : Set a} → Nat → (A → A) → A → A
 iterate zero    _ x = x
-iterate (suc n) f x = iterate n f (f x)
+iterate (suc n) f x = iterate n f $! f x
 
 main : IO ⊤
 main = withNatArg λ n →
@@ -176,3 +177,5 @@ main = withNatArg λ n →
 --             6.0s   122MB        translate force to seq
 --             4.1s   122MB        compile Triple to Haskell data with strict fields
 --             3.7s   123MB   48%  compile Body to the same type
+--             2.2s     1MB   98%  made iterate strict (duh)
+--             1.9s     1MB   98%  match on p and v in update

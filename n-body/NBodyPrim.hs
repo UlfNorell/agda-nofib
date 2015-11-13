@@ -1,8 +1,8 @@
 
 module NBodyPrim where
 
-data GenTriple a b c = Triple !a !b !c
+data Triple a b c = Triple !a !b !c
 
-type Triple a = GenTriple a a a
-type Body = GenTriple (Triple Double) (Triple Double) Double
+type Pos  = Triple Double Double Double
+type Body = Triple Pos Pos Double
 
