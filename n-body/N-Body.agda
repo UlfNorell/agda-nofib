@@ -95,8 +95,7 @@ advance : Float → List Body → List Body
 advance δt = map move ∘ go
   where
     move : Body → Body
-    move b = record { Body b; p = p + diag δt * v }
-      where open Body b
+    move ⟨ p , v , m ⟩ = ⟨ p + diag δt * v , v , m ⟩
 
     update : Body → Body → Body × Body
     update ⟨ p , v , m ⟩ ⟨ p₁ , v₁ , m₁ ⟩ with p | v | p₁ | v₁
@@ -110,13 +109,12 @@ advance δt = map move ∘ go
       let~ d²  ← ∣ u ∣² do
       let~ mag ← δt / (d² * sqrt d²) do
       ⟨ p  , v′  - u * diag (m₁ * mag) , m ⟩ ,
-      ⟨ p₁ , v₁′ + u * diag (m * mag)  , m₁ ⟩
+      ⟨ p₁ , v₁′ + u * diag (m  * mag) , m₁ ⟩
 
     updates : Body → List Body → Body × List Body
     updates b []        = b , []
     updates b (b₁ ∷ bs) =
-      case update b b₁ of λ
-      { (b′ , b₁′) → second (b₁′ ∷_) (updates b′ bs) }
+      case update b b₁ of λ { (b′ , b₁′) → second (b₁′ ∷_) (updates b′ bs) }
 
     go : List Body → List Body
     go []       = []
