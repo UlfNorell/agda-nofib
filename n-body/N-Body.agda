@@ -9,26 +9,49 @@ open import NoFib.IO
 data Triple (A : Set) : Set where
   ⟨_,_,_⟩ : (x y z : A) → Triple A
 
+{-# IMPORT NBodyPrim #-}
+{-# COMPILED_DATA Triple NBodyPrim.Triple NBodyPrim.Triple #-}
+
 _∙_ : {A : Set} {{_ : Semiring A}} → Triple A → Triple A → A
 ⟨ x , y , z ⟩ ∙ ⟨ x₁ , y₁ , z₁ ⟩ = x * x₁ + y * y₁ + z * z₁
 
+pureT : {A : Set} → A → Triple A
+pureT x = ⟨ x , x , x ⟩
+{-# INLINE pureT #-}
+
+appT : {A B : Set} → Triple (A → B) → Triple A → Triple B
+appT ⟨ f , g , h ⟩ ⟨ x , y , z ⟩ = ⟨ f x , g y , h z ⟩
+{-# INLINE appT #-}
+
+mapT : {A B : Set} → (A → B) → Triple A → Triple B
+mapT f x = appT (pureT f) x
+{-# INLINE mapT #-}
+
+η : {A B : Set} → Triple A → (Triple A → B) → B
+η ⟨ x , y , z ⟩ f = f ⟨ x , y , z ⟩
+{-# INLINE η #-}
+
+η₂ : {A B C : Set} → Triple A → Triple B → (Triple A → Triple B → C) → C
+η₂ ⟨ x , y , z ⟩ ⟨ x₁ , y₁ , z₁ ⟩ f = f ⟨ x , y , z ⟩ ⟨ x₁ , y₁ , z₁ ⟩
+{-# INLINE η₂ #-}
+
 instance
   FunTriple : Functor Triple
-  fmap {{FunTriple}} f ⟨ x , y , z ⟩ = ⟨ f x , f y , f z ⟩
+  fmap {{FunTriple}} = mapT
 
   AppTriple : Applicative Triple
-  pure {{AppTriple}} x = ⟨ x , x , x ⟩
-  _<*>_ {{AppTriple}} ⟨ f , g , h ⟩ ⟨ x , y , z ⟩ = ⟨ f x , g y , h z ⟩
+  pure {{AppTriple}} = pureT
+  _<*>_ {{AppTriple}} = appT
 
-  SemiringTriple : {A : Set} {{_ : Semiring A}} → Semiring (Triple A)
+  SemiringTriple : Semiring (Triple Float)
   zro {{SemiringTriple}} = pure zro
   one {{SemiringTriple}} = pure one
-  _+_ {{SemiringTriple}} u v = _+_ <$> u <*> v
-  _*_ {{SemiringTriple}} u v = _*_ <$> u <*> v
+  _+_ {{SemiringTriple}} u v = η₂ u v λ u v → _+_ <$> u <*> v
+  _*_ {{SemiringTriple}} u v = η₂ u v λ u v → _*_ <$> u <*> v
 
-  SubTriple : {A : Set} {{_ : Subtractive A}} → Subtractive (Triple A)
+  SubTriple : Subtractive (Triple Float)
   negate {{SubTriple}} = fmap negate
-  _-_    {{SubTriple}} u v = _-_ <$> u <*> v
+  _-_    {{SubTriple}} u v = η₂ u v λ u v → _-_ <$> u <*> v
 
   FracTriple : Fractional (Triple Float)
   Fractional.Constraint FracTriple _ _ = ⊤
@@ -47,10 +70,14 @@ solarMass : Float
 solarMass = 4 * π ^ 2
 
 record Body : Set where
+  no-eta-equality
+  constructor ⟨_,_,_⟩
   field
     p : Pos
     v : Vec
     m : Float
+
+{-# COMPILED_DATA Body NBodyPrim.Body NBodyPrim.Triple #-}
 
 energy : List Body → Float
 energy = go 0.0
@@ -61,11 +88,11 @@ energy = go 0.0
                         sum (for b₁ ← bs do (m * Body.m b₁) / ∣ p - Body.p b₁ ∣)) bs
       where open Body b
 
-syntax letbind x (λ y → z) = letv y ← x do z
-infix 0 letbind
-letbind : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
-letbind x f = f x
-{-# INLINE letbind #-}
+infix 0 letstrict
+syntax letstrict x (λ y → z) = let! y ← x do z
+letstrict : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
+letstrict x f = force x f
+-- {-# INLINE letstrict #-} -- makes it 15% slower!
 
 {-# TERMINATING #-}
 advance : Float → List Body → List Body
@@ -76,16 +103,13 @@ advance δt = map move ∘ go
       where open Body b
 
     update : Body → Body → Body × Body
-    update b₁ b₂ =
-      letv u   ← b₁.p - b₂.p   do
-      letv d²  ← u ∙ u         do
-      letv d   ← sqrt d²       do
-      letv mag ← δt / (d² * d) do
-      record { b₁; v = b₁.v - u * pure (b₂.m * mag) } ,
-      record { b₂; v = b₂.v + u * pure (b₁.m * mag) }
-      where
-        module b₁ = Body b₁
-        module b₂ = Body b₂
+    update ⟨ p , v , m ⟩ ⟨ p₁ , v₁ , m₁ ⟩ =
+      let! u   ← p - p₁        do
+      let! d²  ← u ∙ u         do
+      let! d   ← sqrt d²       do
+      let! mag ← δt / (d² * d) do
+      ⟨ p  , v - u * pure (m₁ * mag) , m ⟩ ,
+      ⟨ p₁ , v₁ + u * pure (m * mag) , m₁ ⟩
 
     updates : Body → List Body → Body × List Body
     updates b []        = b , []
@@ -143,3 +167,12 @@ main : IO ⊤
 main = withNatArg λ n →
   putStr (printf "%.9f\n" (energy bodies)) >>
   putStr (printf "%.9f\n" (energy (iterate n (advance 0.01) bodies)))
+
+-- Times
+--         N   Time     Mem  Prod
+--   100,000   3.8s  1040MB
+--             0.6s    14MB        strict lets in update
+-- 1,000,000   6.4s   122MB
+--             6.0s   122MB        translate force to seq
+--             4.1s   122MB        compile Triple to Haskell data with strict fields
+--             3.7s   123MB   48%  compile Body to the same type
