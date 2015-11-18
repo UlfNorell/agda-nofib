@@ -1,8 +1,6 @@
 
 module NBodyPrim where
 
-data Triple a b c = Triple !a !b !c
-
-type Pos  = Triple Double Double Double
-type Body = Triple Pos Pos Double
+data Pos  = Pos !Double !Double !Double
+data Body = Body !Pos !Pos !Double
 
