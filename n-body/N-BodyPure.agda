@@ -69,13 +69,17 @@ record Body : Set where
 
 {-# COMPILED_DATA Body NBodyPrim.Body NBodyPrim.Body #-}
 
-energy : List Body → Float
+sumV : ∀ {a} {A : Set a} {{_ : Semiring A}} {n} → Vec A n → A
+sumV [] = zro
+sumV (x ∷ xs) = x + sumV xs
+
+energy : ∀ {n} → Vec Body n → Float
 energy = go 0.0
   where
-    go : Float → List Body → Float
+    go : ∀ {n} → Float → Vec Body n → Float
     go e []       = e
     go e (b ∷ bs) = go (e + 0.5 * m * (v ∙ v) -
-                        sum (for b₁ ← bs do (m * Body.m b₁) / ∣ p - Body.p b₁ ∣)) bs
+                        sumV (for b₁ ← bs do (m * Body.m b₁) / ∣ p - Body.p b₁ ∣)) bs
       where open Body b
 
 infix 0 letstrict
@@ -90,9 +94,8 @@ letlazy : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
 letlazy x f = f x
 {-# INLINE letlazy #-}
 
-{-# TERMINATING #-}
-advance : Float → List Body → List Body
-advance δt = map move ∘ go
+advance : ∀ {n} → Float → Vec Body n → Vec Body n
+advance δt = fmap move ∘ go
   where
     move : Body → Body
     move ⟨ p , v , m ⟩ = ⟨ p + diag δt * v , v , m ⟩
@@ -111,12 +114,12 @@ advance δt = map move ∘ go
       ⟨ p  , v′  - u * diag (m₁ * mag) , m ⟩ ,
       ⟨ p₁ , v₁′ + u * diag (m  * mag) , m₁ ⟩
 
-    updates : Body → List Body → Body × List Body
+    updates : ∀ {n} → Body → Vec Body n → Body × Vec Body n
     updates b []        = b , []
     updates b (b₁ ∷ bs) =
       case update b b₁ of λ { (b′ , b₁′) → second (b₁′ ∷_) (updates b′ bs) }
 
-    go : List Body → List Body
+    go : ∀ {n} → Vec Body n → Vec Body n
     go []       = []
     go (b ∷ bs) = case updates b bs of λ { (b′ , bs′) → b′ ∷ go bs′ }
 
@@ -150,13 +153,13 @@ Body.m sun = solarMass
 offsetMomentum : Pos → Body → Body
 offsetMomentum p b = record { Body b; v = negate (p / diag solarMass) }
 
-bodies : List Body
+bodies : Vec Body _
 bodies = offsetMomentum p sun ∷ planets
   where
-    planets : List Body
+    planets : Vec Body _
     planets = jupiter ∷ saturn ∷ uranus ∷ neptune ∷ []
     p : Pos
-    p = sum (map (λ b →  Body.v b * diag (Body.m b)) (sun ∷ planets))
+    p = sumV (fmap (λ b →  Body.v b * diag (Body.m b)) (sun ∷ planets))
 
 iterate : ∀ {a} {A : Set a} → Nat → (A → A) → A → A
 iterate zero    _ x = x
@@ -179,3 +182,4 @@ main = withNatArg λ n →
 --             1.9s     1MB   98%  match on p and v in update
 --             1.8s                turn on some ghc optimisations
 --             1.1s                specialise the Triple types (allows unboxing)
+--             1.2s                Vec instead of List (no need for TERMINATING)
