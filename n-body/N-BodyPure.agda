@@ -11,8 +11,8 @@ data Pos : Set where
 
 Vel = Pos
 
-{-# IMPORT NBodyPrim #-}
-{-# COMPILED_DATA Pos NBodyPrim.Pos NBodyPrim.Pos #-}
+{-# FOREIGN GHC import NBodyPrim #-}
+{-# COMPILE GHC Pos = data Pos (Pos) #-}
 
 _∙_ : Pos → Pos → Float
 ⟨ x , y , z ⟩ ∙ ⟨ x₁ , y₁ , z₁ ⟩ = x * x₁ + y * y₁ + z * z₁
@@ -67,7 +67,7 @@ record Body : Set where
     v : Vel
     m : Float
 
-{-# COMPILED_DATA Body NBodyPrim.Body NBodyPrim.Body #-}
+{-# COMPILE GHC Body = data Body (Body) #-}
 
 sumV : ∀ {a} {A : Set a} {{_ : Semiring A}} {n} → Vec A n → A
 sumV [] = zro
@@ -79,17 +79,17 @@ energy = go 0.0
     go : ∀ {n} → Float → Vec Body n → Float
     go e []       = e
     go e (b ∷ bs) = go (e + 0.5 * m * (v ∙ v) -
-                        sumV (for b₁ ← bs do (m * Body.m b₁) / ∣ p - Body.p b₁ ∣)) bs
+                        sumV (for bs λ b₁ → (m * Body.m b₁) / ∣ p - Body.p b₁ ∣)) bs
       where open Body b
 
 infix 0 letstrict
-syntax letstrict x (λ y → z) = let! y ← x do z
+syntax letstrict x (λ y → z) = let! y := x !in z
 letstrict : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
 letstrict x f = force x f
 {-# INLINE letstrict #-} -- makes it 15% slower!
 
 infix 0 letlazy
-syntax letlazy x (λ y → z) = let~ y ← x do z
+syntax letlazy x (λ y → z) = let~ y := x ~in z
 letlazy : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
 letlazy x f = f x
 {-# INLINE letlazy #-}
@@ -108,9 +108,9 @@ advance δt = fmap move ∘ go
           p₁′ = ⟨ x₁ , y₁ , z₁ ⟩
           v′  = ⟨ vx  , vy  , vz  ⟩
           v₁′ = ⟨ vx₁ , vy₁ , vz₁ ⟩ in
-      let~ u   ← p′ - p₁′ do
-      let~ d²  ← ∣ u ∣² do
-      let~ mag ← δt / (d² * sqrt d²) do
+      let~ u   := p′ - p₁′ ~in
+      let~ d²  := ∣ u ∣² ~in
+      let~ mag := δt / (d² * sqrt d²) ~in
       ⟨ p  , v′  - u * diag (m₁ * mag) , m ⟩ ,
       ⟨ p₁ , v₁′ + u * diag (m  * mag) , m₁ ⟩
 
@@ -183,3 +183,4 @@ main = withNatArg λ n →
 --             1.8s                turn on some ghc optimisations
 --             1.1s                specialise the Triple types (allows unboxing)
 --             1.2s                Vec instead of List (no need for TERMINATING)
+--             0.8s                Backend optimisations

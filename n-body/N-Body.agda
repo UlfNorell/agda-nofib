@@ -75,17 +75,17 @@ energy = go 0.0
     go : ∀ {n} → Float → Vec Body n → Float
     go e []       = e
     go e (b ∷ bs) = go (e + 0.5 * m * (v ∙ v) -
-                        sumV (for b₁ ← bs do (m * Body.m b₁) / ∣ p - Body.p b₁ ∣)) bs
+                        sumV (for bs λ b₁ → (m * Body.m b₁) / ∣ p - Body.p b₁ ∣)) bs
       where open Body b
 
 infix 0 letstrict
-syntax letstrict x (λ y → z) = let! y ← x do z
+syntax letstrict x (λ y → z) = let! y := x !in z
 letstrict : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
 letstrict x f = force x f
 {-# INLINE letstrict #-} -- makes it 15% slower!
 
 infix 0 letlazy
-syntax letlazy x (λ y → z) = let~ y ← x do z
+syntax letlazy x (λ y → z) = let~ y := x ~in z
 letlazy : ∀ {a b} {A : Set a} {B : Set b} → A → (A → B) → B
 letlazy x f = f x
 {-# INLINE letlazy #-}
@@ -147,10 +147,10 @@ splitV (suc n) (x ∷ xs) = first (x ∷_) (splitV n xs)
 
 listToBody : Vec Float 7 → Body
 listToBody xs =
-  case splitV 3 xs of λ
-  { (ps , xs₁) →
-    case splitV 3 xs₁ of λ
-    { (vs , m ∷ []) → ⟨ listToPos ps , listToPos vs , m ⟩ } }
+  case splitV 3 xs of λ where
+    (ps , xs₁) →
+      case splitV 3 xs₁ of λ where
+        (vs , m ∷ []) → ⟨ listToPos ps , listToPos vs , m ⟩
 
 mulL : Nat → Nat → Nat
 mulL 0 _ = 0
@@ -173,34 +173,36 @@ advance δt = fmap move ∘ go
 
     update : Body → Body → Body × Body
     update ⟨ p , v , m ⟩ ⟨ p₁ , v₁ , m₁ ⟩ =
-      let~ u   ← p - p₁ do
-      let~ d²  ← ∣ u ∣² do
-      let~ mag ← δt / (d² * sqrt d²) do
+      let~ u   := p - p₁ ~in
+      let~ d²  := ∣ u ∣² ~in
+      let~ mag := δt / (d² * sqrt d²) ~in
       ⟨ p  , v  - u * diag (m₁ * mag) , m ⟩ ,
       ⟨ p₁ , v₁ + u * diag (m  * mag) , m₁ ⟩
 
     updates : ∀ {n} → Body → Vec Body n → Body × Vec Body n
     updates b []        = b , []
     updates b (b₁ ∷ bs) =
-      case update b b₁ of λ { (b′ , b₁′) → second (b₁′ ∷_) (updates b′ bs) }
+      case update b b₁ of λ where
+        (b′ , b₁′) → second (b₁′ ∷_) (updates b′ bs)
 
     go : ∀ {n} → Vec Body n → Vec Body n
     go []       = []
-    go (b ∷ bs) = case updates b bs of λ { (b′ , bs′) → b′ ∷ go bs′ }
+    go (b ∷ bs) = case updates b bs of λ where
+                    (b′ , bs′) → b′ ∷ go bs′
 
 advanceM : ∀ {n} → Float → Array (mulL n 7) → IO ⊤
 advanceM {n} δt arr = onArray (bodiesToList {n} ∘ advance δt ∘ listToBodies) arr
 
 iterateM : Nat → IO ⊤ → IO ⊤
 iterateM zero _ = return _
-iterateM (suc n) m = m >>= λ _ → iterateM n m
+iterateM (suc n) m = m >> iterateM n m
 
 ptrSolution : Nat → IO ⊤
-ptrSolution n =
-  putStr (printf "%.9f\n" (energy bodies)) >>
-  allocArray (bodiesToList {numBodies} bodies) >>= λ arr →
-  iterateM n (static (advanceM {numBodies} 0.01 arr)) >>
-  readArray arr >>= λ xs →
+ptrSolution n = do
+  putStr (printf "%.9f\n" (energy bodies))
+  arr ← allocArray (bodiesToList {numBodies} bodies)
+  iterateM n (static (advanceM {numBodies} 0.01 arr))
+  xs ← readArray arr
   putStr (printf "%.9f\n" (energy (listToBodies {numBodies} xs)))
 
 main : IO ⊤
@@ -218,6 +220,8 @@ main = withNatArg ptrSolution
 --             1.9s     1MB   98%  match on p and v in update
 --             1.8s                turn on some ghc optimisations
 --             1.1s                specialise the Triple types (allows unboxing)
+--             0.3s                backend optimisations
+-- 5,000,000   1.6s
 
 -- Array-based
 -- 10,000,000  3.6s

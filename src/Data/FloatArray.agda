@@ -4,10 +4,12 @@ module Data.FloatArray where
 open import Prelude
 open import Builtin.Float
 
-{-# IMPORT Foreign #-}
-{-# IMPORT Foreign.Storable #-}
-{-# IMPORT Foreign.Marshal.Alloc #-}
-{-# IMPORT Data.IORef #-}
+{-# FOREIGN GHC
+  import Foreign
+  import Foreign.Storable
+  import Foreign.Marshal.Alloc
+  import Data.IORef
+#-}
 
 private
  postulate
@@ -16,11 +18,11 @@ private
   poke        : Ptr Float → Nat → Float → IO ⊤
   mallocArray : Nat → IO (Ptr Float)
 
-{-# COMPILED_TYPE Ptr Foreign.Ptr #-}
-{-# COMPILED peek        \ p n   -> Foreign.Storable.peekElemOff p (fromInteger n) #-}
-{-# COMPILED poke        \ p n x -> Foreign.Storable.pokeElemOff p (fromInteger n) x #-}
-{-# COMPILED mallocArray \ n     -> Foreign.Marshal.Alloc.mallocBytes
-                                      (fromInteger n * Foreign.Storable.sizeOf (0.0 :: Double)) #-}
+{-# COMPILE GHC Ptr = type Foreign.Ptr #-}
+{-# COMPILE GHC peek        = \ p n   -> Foreign.Storable.peekElemOff p (fromInteger n) #-}
+{-# COMPILE GHC poke        = \ p n x -> Foreign.Storable.pokeElemOff p (fromInteger n) x #-}
+{-# COMPILE GHC mallocArray = \ n     -> Foreign.Marshal.Alloc.mallocBytes
+                                           (fromInteger n * Foreign.Storable.sizeOf (0.0 :: Double)) #-}
 
 data Array (n : Nat) : Set where
   ptr : Ptr Float → Array n
@@ -41,8 +43,8 @@ onArray : ∀ {n} → (Vec Float n → Vec Float n) → Array n → IO ⊤
 onArray f p = read (unptr p) 0 λ xs → write (unptr p) 0 (f xs)
 
 allocArray : ∀ {n} → Vec Float n → IO (Array n)
-allocArray {n} xs =
-  forM p ← mallocArray n do
+allocArray {n} xs = do
+  p ← mallocArray n
   ptr p <$ write p 0 xs
 
 readArray : ∀ {n} → Array n → IO (Vec Float n)
