@@ -12,14 +12,18 @@ a div! b = quotInt-by b {{nonZ}} a
   where postulate nonZ : NonZeroInt b
 {-# INLINE _div!_ #-}
 
+ensurePos : Int → Maybe ⊤
+ensurePos (pos _)    = pure _
+ensurePos (negsuc _) = nothing
+{-# INLINE ensurePos #-}
+
 output : Int → Int → Int → Maybe Int
-output q r t with r - q
-... | negsuc _ = nothing
-... | pos    _ with q * 3 + r
-...   | a with a div! t
-...     | n with (n + 1) * t - (q + a)
-...       | negsuc _ = nothing
-...       | pos    _ = just n
+output q r t = do
+  ensurePos (r - q)
+  a ← pure (q * 3 + r)
+  n ← pure (a div! t)
+  ensurePos ((n + 1) * t - (q + a))
+  pure n
 {-# INLINE output #-}
 
 {-# TERMINATING #-}
